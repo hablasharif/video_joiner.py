@@ -3,22 +3,25 @@ name: Auto Join Videos
 on:
   push:
     paths:
-      - 'Videos/**'
-      - 'config/video_list.txt'
+      - '**.mp4'
+      - '**.mov'
+      - '**.avi'
+      - '**.mkv'
+      - 'video_list.txt'
   workflow_dispatch:
     inputs:
       transition:
-        description: 'Transition effect (fade/crossfade/wipe/none)'
+        description: 'Transition: fade / crossfade / wipe / none'
         required: false
         default: 'fade'
-      output_name:
-        description: 'Output filename (without extension)'
-        required: false
-        default: 'merged_output'
       quality:
-        description: 'Output quality: high/medium/low'
+        description: 'Quality: high / medium / low'
         required: false
         default: 'high'
+      output_name:
+        description: 'Output filename (no extension)'
+        required: false
+        default: 'merged_output'
 
 jobs:
   join-videos:
@@ -34,34 +37,21 @@ jobs:
           python-version: '3.11'
 
       - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install Python dependencies
-        run: |
-          pip install moviepy==1.0.3 tqdm rich
+        run: pip install rich
 
       - name: Run Video Joiner
-        run: |
-          python scripts/join_videos.py \
-            --input-dir videos/ \
-            --output merged/${{ github.event.inputs.output_name || 'merged_output' }}.mp4 \
-            --transition ${{ github.event.inputs.transition || 'fade' }} \
-            --quality ${{ github.event.inputs.quality || 'high' }}
+        env:
+          TRANSITION:  ${{ github.event.inputs.transition  || 'fade'          }}
+          QUALITY:     ${{ github.event.inputs.quality     || 'high'          }}
+          OUTPUT_NAME: ${{ github.event.inputs.output_name || 'merged_output' }}
+        run: python join_videos.py
 
-      - name: Upload merged video as artifact
+      - name: Upload merged video
         uses: actions/upload-artifact@v4
         with:
           name: merged-video-${{ github.run_number }}
           path: merged/*.mp4
           retention-days: 7
-
-      - name: Commit merged video (optional)
-        if: github.event_name == 'push'
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add merged/
-          git diff --staged --quiet || git commit -m "Auto-merge videos [skip ci]"
-          git push
