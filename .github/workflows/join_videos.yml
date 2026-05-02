@@ -3,7 +3,7 @@ name: Auto Join Videos
 on:
   push:
     paths:
-      - 'videos/**'
+      - 'Videos/**'
       - 'config/video_list.txt'
   workflow_dispatch:
     inputs:
