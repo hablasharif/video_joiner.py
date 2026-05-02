@@ -1,0 +1,67 @@
+name: Auto Join Videos
+
+on:
+  push:
+    paths:
+      - 'videos/**'
+      - 'config/video_list.txt'
+  workflow_dispatch:
+    inputs:
+      transition:
+        description: 'Transition effect (fade/crossfade/wipe/none)'
+        required: false
+        default: 'fade'
+      output_name:
+        description: 'Output filename (without extension)'
+        required: false
+        default: 'merged_output'
+      quality:
+        description: 'Output quality: high/medium/low'
+        required: false
+        default: 'high'
+
+jobs:
+  join-videos:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          pip install moviepy==1.0.3 tqdm rich
+
+      - name: Run Video Joiner
+        run: |
+          python scripts/join_videos.py \
+            --input-dir videos/ \
+            --output merged/${{ github.event.inputs.output_name || 'merged_output' }}.mp4 \
+            --transition ${{ github.event.inputs.transition || 'fade' }} \
+            --quality ${{ github.event.inputs.quality || 'high' }}
+
+      - name: Upload merged video as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-video-${{ github.run_number }}
+          path: merged/*.mp4
+          retention-days: 7
+
+      - name: Commit merged video (optional)
+        if: github.event_name == 'push'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add merged/
+          git diff --staged --quiet || git commit -m "Auto-merge videos [skip ci]"
+          git push
