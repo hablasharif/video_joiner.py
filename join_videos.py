@@ -4,31 +4,19 @@ import subprocess
 import tempfile
 import json
 import shutil
+import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
 # Detect CI (GitHub Actions)
 IS_CI = os.environ.get("CI", "false").lower() == "true"
 
-try:
-    if not IS_CI:
-        from rich.console import Console
-        from rich.table import Table
-        from rich.panel import Panel
-        console = Console()
-        USE_RICH = True
-    else:
-        USE_RICH = False
-except ImportError:
-    USE_RICH = False
-
-
-# ─── Config ────────────────────────────────────────────────────────────────
+# ─── Config ───────────────────────────────────────────────
 TRANSITION   = os.environ.get("TRANSITION", "fade")
-QUALITY      = os.environ.get("QUALITY",    "high")
-OUTPUT_NAME  = os.environ.get("OUTPUT_NAME","merged_output")
+QUALITY      = os.environ.get("QUALITY", "high")
+OUTPUT_NAME  = os.environ.get("OUTPUT_NAME", "merged_output")
 
-# GitHub-safe threading
 MAX_WORKERS = 2 if IS_CI else min(4, os.cpu_count() or 2)
 
 QUALITY_PRESETS = {
@@ -40,8 +28,8 @@ QUALITY_PRESETS = {
 SUPPORTED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".m4v"}
 
 
-# ─── Helpers ───────────────────────────────────────────────────────────────
-def log(msg: str):
+# ─── Helpers ──────────────────────────────────────────────
+def log(msg):
     print(msg)
 
 
@@ -50,11 +38,11 @@ def check_ffmpeg():
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["ffprobe", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
-        log("❌ FFmpeg not installed!")
+        log("❌ FFmpeg not installed")
         sys.exit(1)
 
 
-def run_ffprobe(path: Path) -> dict:
+def run_ffprobe(path):
     result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json",
          "-show_streams", "-show_format", str(path)],
@@ -63,7 +51,7 @@ def run_ffprobe(path: Path) -> dict:
     return json.loads(result.stdout)
 
 
-def get_video_info(path: Path) -> dict:
+def get_video_info(path):
     meta = run_ffprobe(path)
     for stream in meta.get("streams", []):
         if stream.get("codec_type") == "video":
@@ -80,26 +68,62 @@ def get_video_info(path: Path) -> dict:
     raise RuntimeError(f"No video stream in {path}")
 
 
-def normalize_video(src, dst, target, quality):
+def find_videos():
+    return sorted([p for p in Path(".").rglob("*") if p.suffix.lower() in SUPPORTED_EXTENSIONS])
+
+
+# ─── Live FFmpeg Progress ─────────────────────────────────
+def normalize_video(src, dst, target, quality, progress_callback=None):
     info = get_video_info(src)
 
     vf = f"pad={target['width']}:{target['height']}:(ow-iw)/2:(oh-ih)/2:black,fps={target['fps']}"
 
     cmd = [
-        "ffmpeg", "-y", "-i", str(src),
+        "ffmpeg",
+        "-y",
+        "-i", str(src),
         "-vf", vf,
         "-c:v", "libx264",
         "-crf", quality["crf"],
         "-preset", quality["preset"],
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac",
+        "-b:a", "192k",
         "-movflags", "+faststart",
+        "-progress", "pipe:1",
+        "-nostats",
         dst
     ]
 
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1
+    )
+
+    last_time = 0.0
+
+    for line in process.stdout:
+        if line.startswith("out_time_ms"):
+            ms = int(line.strip().split("=")[1])
+            seconds = ms / 1_000_000
+
+            delta = seconds - last_time
+            last_time = seconds
+
+            if progress_callback and delta > 0:
+                progress_callback(delta)
+
+    process.wait()
+
+    if process.returncode != 0:
+        raise RuntimeError(f"FFmpeg failed on {src}")
+
     return dst
 
 
+# ─── Transitions ──────────────────────────────────────────
 def apply_none(clips, output):
     with tempfile.NamedTemporaryFile("w", delete=False) as f:
         for c in clips:
@@ -139,10 +163,7 @@ def apply_fade(clips, output, dur=0.5):
     ], check=True)
 
 
-def find_videos():
-    return sorted([p for p in Path(".").rglob("*") if p.suffix.lower() in SUPPORTED_EXTENSIONS])
-
-
+# ─── Main ────────────────────────────────────────────────
 def main():
     check_ffmpeg()
 
@@ -154,23 +175,48 @@ def main():
     target = {"width": 1920, "height": 1080, "fps": 30}
     quality = QUALITY_PRESETS[QUALITY]
 
+    # Pre-calc durations
+    video_infos = [get_video_info(v) for v in videos]
+    total_seconds = sum(v["duration"] for v in video_infos)
+
+    log(f"🎬 Total duration: {total_seconds/60:.2f} minutes")
+
+    # Global progress bar
+    progress = tqdm(
+        total=total_seconds,
+        unit="sec",
+        desc="Total Progress",
+        dynamic_ncols=True
+    )
+
+    progress_lock = threading.Lock()
+
+    def update_progress(delta):
+        with progress_lock:
+            progress.update(delta)
+
     with tempfile.TemporaryDirectory() as tmp:
         normalized = [None] * len(videos)
 
         log(f"⚙️ Normalizing with {MAX_WORKERS} threads...")
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {
-                executor.submit(normalize_video, v, os.path.join(tmp, f"{i}.mp4"), target, quality): i
-                for i, v in enumerate(videos)
-            }
+            futures = {}
 
-            for f in as_completed(futures):
-                idx = futures[f]
-                normalized[idx] = f.result()
-                log(f"✓ {idx+1}/{len(videos)} done")
+            for i, v in enumerate(videos):
+                out_path = os.path.join(tmp, f"{i}.mp4")
+                futures[executor.submit(
+                    normalize_video, v, out_path, target, quality, update_progress
+                )] = i
 
-        log("🔗 Joining...")
+            for future in as_completed(futures):
+                idx = futures[future]
+                normalized[idx] = future.result()
+                log(f"✓ Finished {idx+1}/{len(videos)}")
+
+        progress.close()
+
+        log("🔗 Joining videos...")
 
         output = f"{OUTPUT_NAME}.mp4"
 
