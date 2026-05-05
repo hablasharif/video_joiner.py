@@ -8,18 +8,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ───────────────── Checkout repo ─────────────────
+      # ───────── Checkout repo ─────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ───────────────── Install dependencies ─────────────────
+      # ───────── Setup Python (IMPORTANT FIX) ─────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ───────── Install system tools ─────────
       - name: Install FFmpeg + rclone
         run: |
           sudo apt update
           sudo apt install -y ffmpeg curl
           curl https://rclone.org/install.sh | sudo bash
 
-      # ───────────────── Setup rclone ─────────────────
+      # ───────── Configure rclone ─────────
       - name: Configure rclone
         run: |
           mkdir -p ~/.config/rclone
@@ -30,7 +36,7 @@ type = drive
 scope = drive.readonly
 EOF
 
-      # ───────────────── Download Google Drive folder ─────────────────
+      # ───────── Download Google Drive folder ─────────
       - name: Download videos from Google Drive folder
         run: |
           mkdir videos
@@ -39,18 +45,19 @@ EOF
             --drive-shared-with-me \
             --progress
 
-      # ───────────────── Install Python deps ─────────────────
-      - name: Install Python dependencies
+      # ───────── Install Python dependencies ─────────
+      - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install tqdm
 
-      # ───────────────── Run merge script ─────────────────
+      # ───────── Run merge script ─────────
       - name: Run video joiner
         run: |
           python join_videos.py
 
-      # ───────────────── Upload results ─────────────────
-      - name: Upload merged output
+      # ───────── Upload output files ─────────
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: merged-video
