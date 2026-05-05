@@ -1,57 +1,50 @@
-name: Auto Join Videos
+name: Video Merge
 
 on:
+  workflow_dispatch:
   push:
     paths:
-      - '**.mp4'
-      - '**.mov'
-      - '**.avi'
-      - '**.mkv'
-      - 'video_list.txt'
-  workflow_dispatch:
-    inputs:
-      transition:
-        description: 'Transition: fade / crossfade / wipe / none'
-        required: false
-        default: 'fade'
-      quality:
-        description: 'Quality: high / medium / low'
-        required: false
-        default: 'high'
-      output_name:
-        description: 'Output filename (no extension)'
-        required: false
-        default: 'merged_output'
+      - "**.py"
+      - "**.mp4"
+      - "**.mkv"
+      - "**.mov"
+      - "**.avi"
 
 jobs:
-  join-videos:
+  merge:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Get your repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      # 2. Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
+      # 3. Install FFmpeg
       - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg
 
-      - name: Install Python dependencies
-        run: pip install rich
+      # 4. Install Python dependencies
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install tqdm
 
+      # 5. Run your script
       - name: Run Video Joiner
-        env:
-          TRANSITION:  ${{ github.event.inputs.transition  || 'fade'          }}
-          QUALITY:     ${{ github.event.inputs.quality     || 'high'          }}
-          OUTPUT_NAME: ${{ github.event.inputs.output_name || 'merged_output' }}
-        run: python join_videos.py
+        run: |
+          python join_videos.py
 
+      # 6. Upload output file
       - name: Upload merged video
         uses: actions/upload-artifact@v4
         with:
-          name: merged-video-${{ github.run_number }}
-          path: merged/*.mp4
-          retention-days: 7
+          name: merged-video
+          path: merged_output.mp4
