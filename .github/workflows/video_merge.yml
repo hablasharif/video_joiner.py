@@ -31,7 +31,7 @@ type = drive
 scope = drive.readonly
 EOF
 
-      - name: Download Google Drive folder
+      - name: Download videos from Google Drive folder
         run: |
           mkdir videos
           rclone copy "gdrive:1EItMceBqNykGiynxkJdWRNZfaucWYl8Z" videos --drive-shared-with-me --progress
