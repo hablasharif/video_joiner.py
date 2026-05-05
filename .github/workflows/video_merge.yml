@@ -8,55 +8,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ───────── Checkout repo ─────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ───────── Setup Python (IMPORTANT FIX) ─────────
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ───────── Install system tools ─────────
       - name: Install FFmpeg + rclone
         run: |
           sudo apt update
           sudo apt install -y ffmpeg curl
           curl https://rclone.org/install.sh | sudo bash
 
-      # ───────── Configure rclone ─────────
       - name: Configure rclone
         run: |
           mkdir -p ~/.config/rclone
-
           cat > ~/.config/rclone/rclone.conf << EOF
 [gdrive]
 type = drive
 scope = drive.readonly
 EOF
 
-      # ───────── Download Google Drive folder ─────────
-      - name: Download videos from Google Drive folder
+      - name: Download Google Drive folder
         run: |
           mkdir videos
+          rclone copy "gdrive:1EItMceBqNykGiynxkJdWRNZfaucWYl8Z" videos --drive-shared-with-me --progress
 
-          rclone copy gdrive:"1EItMceBqNykGiynxkJdWRNZfaucWYl8Z" videos \
-            --drive-shared-with-me \
-            --progress
-
-      # ───────── Install Python dependencies ─────────
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install tqdm
 
-      # ───────── Run merge script ─────────
       - name: Run video joiner
         run: |
           python join_videos.py
 
-      # ───────── Upload output files ─────────
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
