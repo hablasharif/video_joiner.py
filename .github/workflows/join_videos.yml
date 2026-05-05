@@ -1,0 +1,59 @@
+name: Google Drive Video Merge (Rclone)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ───────────────── Checkout repo ─────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ───────────────── Install dependencies ─────────────────
+      - name: Install FFmpeg + rclone
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg curl
+          curl https://rclone.org/install.sh | sudo bash
+
+      # ───────────────── Setup rclone ─────────────────
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+
+          cat > ~/.config/rclone/rclone.conf << EOF
+[gdrive]
+type = drive
+scope = drive.readonly
+EOF
+
+      # ───────────────── Download Google Drive folder ─────────────────
+      - name: Download videos from Google Drive folder
+        run: |
+          mkdir videos
+
+          rclone copy gdrive:"1EItMceBqNykGiynxkJdWRNZfaucWYl8Z" videos \
+            --drive-shared-with-me \
+            --progress
+
+      # ───────────────── Install Python deps ─────────────────
+      - name: Install Python dependencies
+        run: |
+          pip install tqdm
+
+      # ───────────────── Run merge script ─────────────────
+      - name: Run video joiner
+        run: |
+          python join_videos.py
+
+      # ───────────────── Upload results ─────────────────
+      - name: Upload merged output
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-video
+          path: |
+            merged_output.mp4
+            timestamps.txt
