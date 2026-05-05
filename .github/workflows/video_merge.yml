@@ -1,4 +1,4 @@
-name: Google Drive Video Merge (Rclone)
+name: Google Drive Video Merge (Gdown)
 
 on:
   workflow_dispatch:
@@ -8,43 +8,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ───────── Checkout ─────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ───────── Setup Python ─────────
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg + rclone
+      # ───────── Install system tools ─────────
+      - name: Install FFmpeg
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg curl
-          curl https://rclone.org/install.sh | sudo bash
+          sudo apt install -y ffmpeg
 
-      - name: Configure rclone
+      # ───────── Install Python deps ─────────
+      - name: Install dependencies
         run: |
-          mkdir -p ~/.config/rclone
-          # We use a secret called RCLONE_CONFIG_DATA which should contain 
-          # the full content of a working rclone.conf file
-          echo "${{ secrets.RCLONE_CONFIG_DATA }}" > ~/.config/rclone/rclone.conf
+          pip install --upgrade pip
+          pip install gdown tqdm
 
-      - name: Download videos from Google Drive
+      # ───────── Download Google Drive folder ─────────
+      - name: Download videos from Drive
         run: |
-          mkdir -p videos
-          # Using the ID provided in your snippet
-          rclone copy "gdrive:{"1EItMceBqNykGiynxkJdWRNZfaucWYl8Z"}" ./videos \
-            --drive-shared-with-me \
-            --include "*.{mp4,mkv,mov,avi}" \
-            --progress
+          mkdir videos
+          gdown --folder "https://drive.google.com/drive/folders/1EItMceBqNykGiynxkJdWRNZfaucWYl8Z" -O videos
 
-      - name: Install Python dependencies
-        run: |
-          pip install tqdm
-
-      - name: Run video joiner
+      # ───────── Run your script ─────────
+      - name: Merge videos
         run: python join_videos.py
 
+      # ───────── Upload output ─────────
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
